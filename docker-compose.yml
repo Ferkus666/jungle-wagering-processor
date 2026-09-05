@@ -1,0 +1,30 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: jungle-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: jungle_wagering
+      POSTGRES_USER: jungle
+      POSTGRES_PASSWORD: jungle
+    ports:
+      - "55432:5432"
+    volumes:
+      - jungle_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jungle -d jungle_wagering"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  ministack:
+    image: ministackorg/ministack
+    container_name: jungle-ministack
+    restart: unless-stopped
+    environment:
+      MINISTACK_REGION: us-east-1
+    ports:
+      - "4566:4566"
+
+volumes:
+  jungle_postgres_data:
