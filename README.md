@@ -1,48 +1,48 @@
 # Jungle Wagering Processor
 
-Distributed wagering processor built with **Bun, TypeScript, NestJS, PostgreSQL, MikroORM and AWS SQS-compatible queues**.
+Processador distribuído de apostas desenvolvido com **Bun, TypeScript, NestJS, PostgreSQL, MikroORM e filas compatíveis com AWS SQS**.
 
-The project focuses on financial correctness under concurrency, durable idempotency, immutable ledger accounting, asynchronous recovery and safe multi-instance processing.
+O projeto tem foco em consistência financeira sob concorrência, idempotência durável, contabilização em ledger imutável, recuperação assíncrona e processamento seguro em múltiplas instâncias.
 
-## Main goals
+## Principais objetivos
 
-The processor guarantees that:
+O processador garante que:
 
-- money is represented as exact decimal strings with two decimal places;
-- a wallet never becomes negative;
-- wallet balance changes and ledger entries are committed atomically;
-- each wallet has a monotonic version that changes only when the balance changes;
-- repeated requests with the same idempotency key do not apply the financial effect twice;
-- reusing an idempotency key with a different payload is rejected;
-- concurrent requests do not cause lost updates;
-- REFUND and ROLLBACK reference the original provider transaction safely;
-- missing reversal references can wait in `PENDING_REFERENCE` and be retried asynchronously;
-- queue messages are acknowledged only after the database work is committed;
-- outbox events are persisted in the same transaction as the business change;
-- background workers are safe to run in more than one application instance.
+- valores monetários são representados como strings decimais exatas com duas casas decimais;
+- uma carteira nunca fica com saldo negativo;
+- alterações de saldo e entradas do ledger são persistidas atomicamente;
+- cada carteira possui uma versão monotônica que muda apenas quando o saldo é alterado;
+- requisições repetidas com a mesma chave de idempotência não aplicam o efeito financeiro duas vezes;
+- a reutilização de uma chave de idempotência com payload diferente é rejeitada;
+- requisições concorrentes não causam perda de atualizações;
+- `REFUND` e `ROLLBACK` referenciam com segurança a transação original do provedor;
+- referências de reversão ausentes podem permanecer em `PENDING_REFERENCE` e ser reprocessadas de forma assíncrona;
+- mensagens da fila recebem confirmação somente após o commit do trabalho no banco de dados;
+- eventos de outbox são persistidos na mesma transação da alteração de negócio;
+- workers em segundo plano podem ser executados com segurança em mais de uma instância da aplicação.
 
-## Stack
+## Tecnologias
 
 - Bun 1.x
-- TypeScript with strict typing
+- TypeScript com tipagem estrita
 - NestJS
 - PostgreSQL 16
 - MikroORM
 - decimal.js
 - AWS SDK for SQS
-- MiniStack for local SQS-compatible infrastructure
+- MiniStack para infraestrutura local compatível com SQS
 - Docker Compose
 - Bun Test
 
-## Architecture
+## Arquitetura
 
-The project is split into domain, application and infrastructure responsibilities.
+O projeto é dividido entre responsabilidades de domínio, aplicação e infraestrutura.
 
 ```text
 HTTP / SQS
    |
    v
-Application layer
+Camada de aplicação
    |
    v
 ProcessWagerService
@@ -50,7 +50,7 @@ ProcessWagerService
    +--------------------+
    |                    |
    v                    v
-Domain rules        PostgreSQL transaction
+Regras de domínio    Transação PostgreSQL
 Money / Wallet      wallet + wager + ledger
 WagerTransaction    idempotency + inbox + outbox
                         |
@@ -58,13 +58,13 @@ WagerTransaction    idempotency + inbox + outbox
                    Transactional Outbox
                         |
                         v
-                 Background Publisher
+                 Publicador em segundo plano
                         |
                         v
                      SQS FIFO
 ```
 
-Main folders:
+Principais pastas:
 
 ```text
 src/
@@ -90,13 +90,13 @@ src/
   migrations/
 ```
 
-## Financial model
+## Modelo financeiro
 
 ### Money
 
-Financial values are never handled as JavaScript floating-point money values.
+Valores financeiros nunca são tratados como valores monetários de ponto flutuante do JavaScript.
 
-The API accepts values such as:
+A API aceita valores como:
 
 ```json
 {
@@ -105,50 +105,50 @@ The API accepts values such as:
 }
 ```
 
-Domain validation requires an exact decimal representation and currency consistency.
+A validação de domínio exige representação decimal exata e consistência de moeda.
 
-### Wallet
+### Carteira
 
-A wallet belongs to one player and one currency.
+Uma carteira pertence a um jogador e a uma moeda.
 
-Important invariants:
+Invariantes importantes:
 
-- at most one wallet per player and currency;
-- balance cannot become negative;
-- version starts at `1`;
-- version is incremented only when balance changes;
-- each balance change must have a corresponding ledger entry.
+- no máximo uma carteira por jogador e moeda;
+- o saldo não pode ficar negativo;
+- a versão começa em `1`;
+- a versão é incrementada apenas quando o saldo muda;
+- cada alteração de saldo deve possuir uma entrada correspondente no ledger.
 
 ### Ledger
 
-The ledger is append-only from the application perspective.
+O ledger é somente de acréscimo (`append-only`) do ponto de vista da aplicação.
 
-A ledger entry records:
+Uma entrada do ledger registra:
 
-- direction (`CREDIT` or `DEBIT`);
-- exact amount;
-- currency;
-- balance before;
-- balance after;
-- related wager transaction.
+- direção (`CREDIT` ou `DEBIT`);
+- valor exato;
+- moeda;
+- saldo anterior;
+- saldo posterior;
+- transação de aposta relacionada.
 
-`LOSS` is a processed wagering transaction but does not change wallet balance, therefore it does not create a ledger entry.
+`LOSS` é uma transação de aposta processada, mas não altera o saldo da carteira e, portanto, não cria uma entrada no ledger.
 
-## Wager transaction types
+## Tipos de transação de aposta
 
-Supported external transaction kinds:
+Tipos de transação externa suportados:
 
-| Kind | Financial effect |
+| Tipo | Efeito financeiro |
 |---|---|
-| `BET` | debit |
-| `WIN` | credit |
-| `LOSS` | no balance change |
-| `REFUND` | credit of a referenced BET |
-| `ROLLBACK` | inverse effect of a referenced BET, WIN or REFUND |
+| `BET` | débito |
+| `WIN` | crédito |
+| `LOSS` | sem alteração de saldo |
+| `REFUND` | crédito de um BET referenciado |
+| `ROLLBACK` | efeito inverso de um BET, WIN ou REFUND referenciado |
 
-`OPENING` is internal and is created when a wallet starts with a non-zero balance. It cannot be submitted through HTTP or SQS.
+`OPENING` é interno e é criado quando uma carteira começa com saldo diferente de zero. Não pode ser enviado por HTTP ou SQS.
 
-Transaction statuses:
+Status das transações:
 
 - `PENDING`
 - `PENDING_REFERENCE`
@@ -156,72 +156,72 @@ Transaction statuses:
 - `REJECTED`
 - `FAILED`
 
-`PROCESSED`, `REJECTED` and `FAILED` are terminal.
+`PROCESSED`, `REJECTED` e `FAILED` são estados terminais.
 
-## Reversal references
+## Referências de reversão
 
-The project intentionally separates two identifiers:
+O projeto separa intencionalmente dois identificadores:
 
-- `referenceExternalTransactionId`: provider-facing external reference;
-- `referenceTransactionId`: internal ID of the resolved original transaction.
+- `referenceExternalTransactionId`: referência externa utilizada pelo provedor;
+- `referenceTransactionId`: ID interno da transação original resolvida.
 
-For a REFUND or ROLLBACK, the processor first receives the external reference. After the referenced transaction is found and validated, its internal transaction ID is persisted.
+Para um `REFUND` ou `ROLLBACK`, o processador primeiro recebe a referência externa. Depois que a transação referenciada é encontrada e validada, seu ID interno é persistido.
 
-Reference validation checks include provider, player, wallet, currency, round, type and exact amount.
+A validação da referência verifica provedor, jogador, carteira, moeda, rodada, tipo e valor exato.
 
-If the original transaction has not arrived yet, the reversal can enter `PENDING_REFERENCE`.
+Se a transação original ainda não tiver chegado, a reversão pode entrar em `PENDING_REFERENCE`.
 
-## Pending reference recovery
+## Recuperação de referências pendentes
 
-`PendingReferenceWorkerService` periodically processes due pending reversals.
+`PendingReferenceWorkerService` processa periodicamente reversões pendentes que estão prontas para nova tentativa.
 
-The worker:
+O worker:
 
-- retries missing references with backoff;
-- can be run concurrently by multiple instances;
-- uses database row locking with `SKIP LOCKED`;
-- resolves the reversal when the referenced transaction appears;
-- rejects it with a stable failure code after the configured retry limit.
+- tenta novamente referências ausentes utilizando backoff;
+- pode ser executado concorrentemente por múltiplas instâncias;
+- utiliza bloqueio de linhas no banco com `SKIP LOCKED`;
+- resolve a reversão quando a transação referenciada aparece;
+- rejeita a reversão com um código de falha estável após o limite configurado de tentativas.
 
-## Concurrency strategy
+## Estratégia de concorrência
 
-Financial correctness is enforced in PostgreSQL transactions.
+A consistência financeira é garantida por transações PostgreSQL.
 
-Wallet mutation uses pessimistic database locking so concurrent balance changes for the same wallet are serialized.
+Alterações na carteira utilizam bloqueio pessimista no banco de dados, fazendo com que mudanças concorrentes de saldo na mesma carteira sejam serializadas.
 
-The project also uses PostgreSQL advisory transaction locks where serialization is needed for durable idempotency and inbox processing.
+O projeto também utiliza advisory transaction locks do PostgreSQL quando é necessária serialização para idempotência durável e processamento da inbox.
 
-Lock contention is observable through:
+A contenção de locks pode ser observada por meio de:
 
 ```text
 lock_conflicts_total
 ```
 
-A dedicated integration test intentionally creates a real advisory-lock conflict and proves that processing resumes safely after the lock is released.
+Um teste de integração dedicado cria intencionalmente um conflito real de advisory lock e comprova que o processamento continua com segurança após a liberação do lock.
 
-## Idempotency
+## Idempotência
 
-HTTP requests require:
+As requisições HTTP exigem:
 
 ```text
 Idempotency-Key
 ```
 
-Idempotency is persisted in PostgreSQL instead of being stored only in memory.
+A idempotência é persistida no PostgreSQL em vez de ser armazenada apenas em memória.
 
-The processor stores a canonical payload hash together with the idempotency record.
+O processador armazena um hash canônico do payload junto ao registro de idempotência.
 
-Behavior:
+Comportamento:
 
-- same key + same payload: safe replay;
-- same key + different payload: conflict;
-- multiple application instances: protected by the database.
+- mesma chave + mesmo payload: replay seguro;
+- mesma chave + payload diferente: conflito;
+- múltiplas instâncias da aplicação: protegidas pelo banco de dados.
 
-## SQS processing
+## Processamento SQS
 
-The application consumes wager commands from a FIFO queue.
+A aplicação consome comandos de apostas de uma fila FIFO.
 
-Default local queues:
+Filas locais padrão:
 
 ```text
 wager-transactions.fifo
@@ -229,9 +229,9 @@ wager-transactions-dlq.fifo
 wager-events.fifo
 ```
 
-The queues are created automatically when the application starts.
+As filas são criadas automaticamente quando a aplicação inicia.
 
-Incoming message format:
+Formato da mensagem recebida:
 
 ```json
 {
@@ -255,21 +255,21 @@ Incoming message format:
 }
 ```
 
-The consumer uses the same wagering use case used by HTTP.
+O consumidor utiliza o mesmo caso de uso de apostas utilizado pelo HTTP.
 
-A persistent inbox prevents the same queue message from applying its business effect twice, including crash-before-ACK scenarios.
+Uma inbox persistente impede que a mesma mensagem da fila aplique seu efeito de negócio duas vezes, inclusive em cenários de falha antes do ACK.
 
-Messages are deleted from the source queue only after committed processing.
+As mensagens são removidas da fila de origem somente após o processamento ter sido confirmado no banco.
 
-Business-invalid messages and retry exhaustion are sent to the configured DLQ.
+Mensagens inválidas pelas regras de negócio e mensagens que esgotam as tentativas são enviadas para a DLQ configurada.
 
-## Transactional Outbox
+## Outbox transacional
 
-Domain events are written to PostgreSQL in the same transaction as the financial state change.
+Eventos de domínio são gravados no PostgreSQL na mesma transação da alteração do estado financeiro.
 
-A separate publisher reads unpublished events using a multi-worker-safe strategy and sends them to `wager-events.fifo`.
+Um publicador separado lê eventos ainda não publicados usando uma estratégia segura para múltiplos workers e os envia para `wager-events.fifo`.
 
-Published events include:
+Os eventos publicados incluem:
 
 ```text
 WagerTransactionProcessed.v1
@@ -278,13 +278,13 @@ WagerTransactionPendingReference.v1
 WalletBalanceChanged.v1
 ```
 
-This prevents a committed financial transaction from losing its corresponding integration event if the process crashes after the database commit.
+Isso impede que uma transação financeira já confirmada perca seu evento de integração correspondente caso o processo falhe após o commit no banco de dados.
 
-## Observability
+## Observabilidade
 
-Logs are structured JSON and intentionally avoid logging complete financial payloads.
+Os logs são estruturados em JSON e evitam intencionalmente registrar payloads financeiros completos.
 
-Relevant identifiers can include:
+Identificadores relevantes podem incluir:
 
 - `correlationId`
 - `messageId`
@@ -295,7 +295,7 @@ Relevant identifiers can include:
 - `retryCount`
 - `durationMs`
 
-Examples of collected metrics include:
+Exemplos de métricas coletadas incluem:
 
 ```text
 wager_transactions_total
@@ -318,7 +318,7 @@ lock_conflicts_total
 background_worker_errors_total
 ```
 
-Current in-process metrics snapshot:
+Snapshot atual das métricas em processo:
 
 ```http
 GET /metrics
@@ -338,18 +338,18 @@ Readiness:
 GET /health/ready
 ```
 
-Readiness checks dependencies needed by the application instead of reporting healthy only because the HTTP process is running.
+O readiness verifica as dependências necessárias para a aplicação, em vez de indicar estado saudável apenas porque o processo HTTP está em execução.
 
-## HTTP API
+## API HTTP
 
-### Create wallet
+### Criar carteira
 
 ```http
 POST /wallets
 Content-Type: application/json
 ```
 
-Example:
+Exemplo:
 
 ```json
 {
@@ -361,21 +361,21 @@ Example:
 }
 ```
 
-### Get wallet
+### Consultar carteira
 
 ```http
 GET /wallets/:id
 ```
 
-### Get wallet ledger
+### Consultar carteira ledger
 
 ```http
 GET /wallets/:id/ledger?limit=20&cursor=...
 ```
 
-Ledger pagination uses a cursor based on `createdAt + id` instead of OFFSET pagination.
+A paginação do ledger utiliza um cursor baseado em `createdAt + id`, em vez de paginação com `OFFSET`.
 
-### Process wager
+### Processar aposta
 
 ```http
 POST /wagering/transactions
@@ -383,7 +383,7 @@ Idempotency-Key: provider-a:bet-001
 Content-Type: application/json
 ```
 
-Example BET:
+Exemplo de BET:
 
 ```json
 {
@@ -401,7 +401,7 @@ Example BET:
 }
 ```
 
-Example REFUND:
+Exemplo de REFUND:
 
 ```json
 {
@@ -420,70 +420,70 @@ Example REFUND:
 }
 ```
 
-A reversal whose original transaction has not arrived yet can return as `PENDING_REFERENCE`.
+Uma reversão cuja transação original ainda não chegou pode retornar como `PENDING_REFERENCE`.
 
-### Query wager by internal ID
+### Consultar aposta pelo ID interno
 
 ```http
 GET /wagering/transactions/:id
 ```
 
-### Query wager by provider reference
+### Consultar aposta pela referência do provedor
 
 ```http
 GET /wagering/transactions/provider/:providerId/:externalTransactionId
 ```
 
-### Reconcile wallet
+### Reconciliar carteira
 
-Canonical endpoint:
+Endpoint canônico:
 
 ```http
 POST /wallets/:walletId/reconciliation
 ```
 
-A compatibility alias is also available:
+Um alias de compatibilidade também está disponível:
 
 ```http
 GET /reconciliation/wallets/:walletId
 ```
 
-Reconciliation independently rebuilds the wallet balance from ledger entries and reports whether the stored balance is consistent.
+A reconciliação reconstrói de forma independente o saldo da carteira a partir das entradas do ledger e informa se o saldo armazenado está consistente.
 
-Architectural decisions, trade-offs and known limitations are documented in [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+As decisões arquiteturais, trade-offs e limitações conhecidas estão documentadas em [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
-## Local setup
+## Configuração local
 
-### Requirements
+### Requisitos
 
-Install:
+Instale:
 
 - Bun 1.x
 - Docker
 - Docker Compose
 
-### 1. Install dependencies
+### 1. Instalar dependências
 
 ```bash
 bun install
 ```
 
-### 2. Start PostgreSQL and MiniStack
+### 2. Iniciar PostgreSQL e MiniStack
 
 ```bash
 docker compose up -d
 ```
 
-Default local services:
+Serviços locais padrão:
 
 ```text
 PostgreSQL: 127.0.0.1:55432
 MiniStack:  http://localhost:4566
 ```
 
-### 3. Configure environment
+### 3. Configurar o ambiente
 
-A minimal local `.env` can be:
+Um `.env` local mínimo pode ser:
 
 ```env
 DATABASE_HOST=127.0.0.1
@@ -512,122 +512,122 @@ PENDING_REFERENCE_BASE_BACKOFF_SECONDS=5
 PORT=3000
 ```
 
-### 4. Run migrations
+### 4. Executar migrations
 
 ```bash
 bun run migration:up
 ```
 
-### 5. Start application
+### 5. Iniciar a aplicação
 
-Development:
+Desenvolvimento:
 
 ```bash
 bun run start:dev
 ```
 
-Normal start:
+Inicialização normal:
 
 ```bash
 bun run start
 ```
 
-Production build:
+Build de produção:
 
 ```bash
 bun run build
 bun run start:prod
 ```
 
-## Database migrations
+## Migrations do banco de dados
 
-Migrations are versioned under:
+As migrations são versionadas em:
 
 ```text
 src/migrations/
 ```
 
-Apply:
+Aplicar:
 
 ```bash
 bun run migration:up
 ```
 
-Rollback the latest migration:
+Reverter a migration mais recente:
 
 ```bash
 bun run migration:down
 ```
 
-Create a new migration:
+Criar uma nova migration:
 
 ```bash
 bun run migration:create
 ```
 
-## Tests
+## Testes
 
-Run all tests:
+Executar todos os testes:
 
 ```bash
 bun test
 ```
 
-Build before submission:
+Executar o build antes da entrega:
 
 ```bash
 bun run build
 ```
 
-The test suite covers domain rules and PostgreSQL/SQS integration scenarios, including:
+A suíte de testes cobre regras de domínio e cenários de integração com PostgreSQL/SQS, incluindo:
 
-- exact Money behavior;
-- Wallet invariants;
-- wager state transitions;
-- currency validation;
-- durable idempotency;
-- idempotency payload conflicts;
-- HTTP processing;
-- wallet and ledger endpoints;
-- reconciliation;
-- inbox crash recovery;
-- outbox publishing;
-- SQS retry and DLQ behavior;
-- graceful consumer shutdown;
-- pending-reference recovery;
-- pending-reference observability;
-- distributed wallet concurrency;
-- lock-conflict observability;
-- final wallet/ledger financial invariant.
+- comportamento exato de `Money`;
+- invariantes de `Wallet`;
+- transições de estado das apostas;
+- validação de moeda;
+- idempotência durável;
+- conflitos de payload de idempotência;
+- processamento HTTP;
+- endpoints de carteira e ledger;
+- reconciliação;
+- recuperação da inbox após falhas;
+- publicação da outbox;
+- comportamento de retry e DLQ do SQS;
+- encerramento gracioso do consumidor;
+- recuperação de referências pendentes;
+- observabilidade de referências pendentes;
+- concorrência distribuída de carteiras;
+- observabilidade de conflitos de lock;
+- invariante financeiro final entre carteira e ledger.
 
-### Concurrency scenario
+### Cenário de concorrência
 
-An integration test starts with:
+Um teste de integração começa com:
 
 ```text
 balance = 100.00
 ```
 
-and submits two concurrent BET transactions of:
+e envia duas transações `BET` concorrentes de:
 
 ```text
 80.00 + 80.00
 ```
 
-Expected result:
+Resultado esperado:
 
 ```text
-one transaction processed
-one transaction rejected for insufficient funds
-final balance = 20.00
-one debit applied
+uma transação processada
+uma transação rejeitada por saldo insuficiente
+saldo final = 20.00
+um débito aplicado
 ```
 
-This demonstrates that the implementation does not rely on a single-process mutex.
+Isso demonstra que a implementação não depende de um mutex limitado a um único processo.
 
-### Final financial invariant
+### Invariante financeiro final
 
-Another integration test executes a complete lifecycle:
+Outro teste de integração executa um ciclo de vida completo:
 
 ```text
 OPENING 100.00
@@ -640,47 +640,47 @@ ROLLBACK -10.00
 FINAL    100.00
 ```
 
-It verifies that:
+Ele verifica que:
 
-- final wallet balance is `100.00`;
-- wallet version changes only for balance-changing operations;
-- LOSS creates no ledger entry;
-- reversal references resolve to internal transaction IDs;
-- each ledger `balanceBefore` matches the previous `balanceAfter`;
-- the last ledger `balanceAfter` equals the persisted wallet balance;
-- the ledger can independently reconstruct the wallet balance.
+- o saldo final da carteira é `100.00`;
+- a versão da carteira muda apenas em operações que alteram o saldo;
+- `LOSS` não cria entrada no ledger;
+- referências de reversão são resolvidas para IDs internos das transações;
+- cada `balanceBefore` do ledger corresponde ao `balanceAfter` anterior;
+- o último `balanceAfter` do ledger é igual ao saldo persistido da carteira;
+- o ledger consegue reconstruir de forma independente o saldo da carteira.
 
-## Graceful shutdown
+## Encerramento gracioso
 
-Nest shutdown hooks are enabled.
+Os hooks de encerramento do Nest estão habilitados.
 
-On `SIGTERM` or `SIGINT`:
+Ao receber `SIGTERM` ou `SIGINT`:
 
-- the SQS consumer stops receiving new work;
-- background loops stop starting new cycles;
-- in-flight work is awaited;
-- SQS clients are destroyed only after worker shutdown.
+- o consumidor SQS para de receber novos trabalhos;
+- os loops em segundo plano param de iniciar novos ciclos;
+- trabalhos em andamento são aguardados;
+- os clientes SQS são destruídos somente após o encerramento dos workers.
 
-## Multi-instance safety
+## Segurança em múltiplas instâncias
 
-The design avoids relying on process-local state for correctness.
+O design evita depender de estado local do processo para garantir consistência.
 
-Cross-instance coordination is provided by PostgreSQL through:
+A coordenação entre instâncias é fornecida pelo PostgreSQL por meio de:
 
-- database transactions;
-- pessimistic wallet row locks;
+- transações de banco de dados;
+- locks pessimistas nas linhas das carteiras;
 - advisory transaction locks;
-- unique constraints;
-- persistent idempotency records;
-- persistent inbox records;
-- `FOR UPDATE SKIP LOCKED` background worker selection;
-- transactional outbox state.
+- constraints únicas;
+- registros persistentes de idempotência;
+- registros persistentes de inbox;
+- seleção de trabalho dos workers com `FOR UPDATE SKIP LOCKED`;
+- estado persistente da outbox transacional.
 
-This makes the financial rules safe when several application instances receive work concurrently.
+Isso mantém as regras financeiras seguras quando várias instâncias da aplicação recebem trabalho concorrentemente.
 
-## Clean-start verification
+## Verificação a partir de ambiente limpo
 
-To validate the project from a clean local environment:
+Para validar o projeto a partir de um ambiente local limpo:
 
 ```bash
 docker compose down -v
@@ -692,7 +692,7 @@ bun test
 bun run start
 ```
 
-After startup, verify:
+Após a inicialização, verifique:
 
 ```text
 GET http://localhost:3000/health/live
@@ -700,42 +700,42 @@ GET http://localhost:3000/health/ready
 GET http://localhost:3000/metrics
 ```
 
-## Design trade-offs
+## Trade-offs de design
 
-### PostgreSQL as the coordination authority
+### PostgreSQL como autoridade de coordenação
 
-Correctness is coordinated in PostgreSQL rather than with an in-memory mutex. An in-memory lock would protect only one application process and would fail as soon as multiple instances were deployed.
+A consistência é coordenada pelo PostgreSQL, e não por um mutex em memória. Um lock em memória protegeria apenas um processo da aplicação e deixaria de ser suficiente assim que múltiplas instâncias fossem implantadas.
 
-### Pessimistic wallet locking
+### Lock pessimista da carteira
 
-Wallet mutations serialize at the wallet row. This favors financial correctness and simple invariants over maximum parallelism for commands targeting the same wallet, while unrelated wallets can still process concurrently.
+Alterações da carteira são serializadas na própria linha da carteira. Essa escolha prioriza consistência financeira e invariantes simples em vez de paralelismo máximo para comandos direcionados à mesma carteira, enquanto carteiras diferentes ainda podem ser processadas concorrentemente.
 
-### Persistent idempotency and inbox
+### Idempotência e inbox persistentes
 
-Both HTTP idempotency and queue deduplication survive process restarts. A memory-only cache would not protect against retries after a crash.
+Tanto a idempotência HTTP quanto a deduplicação da fila sobrevivem a reinicializações do processo. Um cache somente em memória não protegeria contra novas tentativas após uma falha.
 
-### Transactional outbox
+### Outbox transacional
 
-External publication is intentionally decoupled from the financial database transaction. The database commits the business change and event intent atomically; asynchronous delivery is retried independently.
+A publicação externa é intencionalmente desacoplada da transação financeira do banco. O banco confirma atomicamente a alteração de negócio e a intenção do evento; a entrega assíncrona é tentada novamente de forma independente.
 
-### In-process metrics
+### Métricas em processo
 
-For the challenge, metrics are exposed as an in-process snapshot at `/metrics`. In a production environment this service could be adapted to Prometheus/OpenTelemetry without changing the business model.
+Para o desafio, as métricas são expostas como um snapshot em processo em `/metrics`. Em um ambiente de produção, esse serviço poderia ser adaptado para Prometheus/OpenTelemetry sem alterar o modelo de negócio.
 
-### Manual queue failure handling
+### Tratamento manual de falhas da fila
 
-The consumer explicitly distinguishes retryable failures, permanent-invalid messages and retry exhaustion. Failed messages can be forwarded to the configured DLQ while preserving the same processing use case.
+O consumidor diferencia explicitamente falhas que podem ser tentadas novamente, mensagens permanentemente inválidas e esgotamento de tentativas. Mensagens com falha podem ser encaminhadas para a DLQ configurada preservando o mesmo caso de uso de processamento.
 
-## Submission checklist
+## Checklist de entrega
 
-Before submitting:
+Antes de enviar:
 
 ```bash
 bun run build
 bun test
 ```
 
-Recommended clean run:
+Execução limpa recomendada:
 
 ```bash
 docker compose down -v
@@ -745,4 +745,4 @@ bun run build
 bun test
 ```
 
-The repository should not depend on previously created database state or manually created SQS queues.
+O repositório não deve depender de estado de banco de dados criado anteriormente nem de filas SQS criadas manualmente.
